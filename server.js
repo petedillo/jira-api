@@ -1,87 +1,77 @@
-#!/usr/bin/env node
+const express = require('express');
+const createError = require('http-errors');
+const cookieParser = require('cookie-parser');
+const logger = require('morgan');
+const path = require('path');
 
-/**
- * Module dependencies.
- */
-const app = require('./app');
-const debug = require('debug')('jira-api:server');
-const http = require('http');
-
-/**
- * Get port from environment and store in Express.
- */
-const port = normalizePort(process.env.PORT || '3000');
-app.set('port', port);
-
-/**
- * Create HTTP server.
- */
-const server = http.createServer(app);
-
-/**
- * Listen on provided port, on all network interfaces.
- */
-server.listen(port);
-server.on('error', onError);
-server.on('listening', onListening);
-
-/**
- * Normalize a port into a number, string, or false.
- */
-function normalizePort(val) {
-  const port = parseInt(val, 10);
-
-  if (isNaN(port)) {
-    // named pipe
-    return val;
-  }
-
-  if (port >= 0) {
-    // port number
-    return port;
-  }
-
-  return false;
+// Load environment variables
+try {
+  require('dotenv').config();
+} catch (err) {
+  console.error('Error loading .env file:', err.message);
+  process.exit(1);
 }
 
-/**
- * Event listener for HTTP server "error" event.
- */
-function onError(error) {
-  if (error.syscall !== 'listen') {
-    throw error;
-  }
+// Check required environment variables
+const JIRA_BASE_URL = process.env.JIRA_BASE_URL;
+const JIRA_USER_EMAIL = process.env.JIRA_USER_EMAIL;
+const JIRA_USER_PASSWORD = process.env.JIRA_USER_PASSWORD;
 
-  const bind = typeof port === 'string'
-    ? 'Pipe ' + port
-    : 'Port ' + port;
-
-  // handle specific listen errors with friendly messages
-  switch (error.code) {
-    case 'EACCES':
-      console.error(bind + ' requires elevated privileges');
-      process.exit(1);
-      break;
-    case 'EADDRINUSE':
-      console.error(bind + ' is already in use');
-      process.exit(1);
-      break;
-    default:
-      throw error;
-  }
+if (!JIRA_BASE_URL || !JIRA_USER_EMAIL || !JIRA_USER_PASSWORD) {
+  console.error('Missing required environment variables: JIRA_BASE_URL, JIRA_USER_EMAIL, JIRA_USER_PASSWORD');
+  process.exit(1);
 }
 
-/**
- * Event listener for HTTP server "listening" event.
- */
-function onListening() {
-  const addr = server.address();
-  const bind = typeof addr === 'string'
-    ? 'pipe ' + addr
-    : 'port ' + addr.port;
-  
-  console.log(`Server running on ${bind}`);
-  console.log(`Jira Projects API: http://localhost:${addr.port}/jira/projects`);
-  
-  debug('Listening on ' + bind);
-}
+const app = express();
+const port = process.env.PORT || 3000;
+
+// View engine setup
+app.set('views', path.join(__dirname, 'views'));
+app.set('view engine', 'twig');
+
+// Middleware
+app.use(logger('dev'));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser());
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Routes
+const indexRouter = require('./routes/index');
+const projectsRouter = require('./routes/projects');
+
+app.use('/', indexRouter);
+app.use('/jira/projects', projectsRouter);
+
+// Catch 404 and forward to error handler
+app.use((req, res, next) => {
+  next(createError(404));
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  // Set locals, only providing error in development
+  res.locals.message = err.message;
+  res.locals.error = req.app.get('env') === 'development' ? err : {};
+
+  // Return JSON error for API routes
+  if (req.path.startsWith('/jira')) {
+    return res.status(err.status || 500).json({
+      error: {
+        message: err.message,
+        status: err.status || 500
+      }
+    });
+  }
+
+  // Render the error page for web routes
+  res.status(err.status || 500);
+  res.render('error');
+});
+
+// Start server
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
+
+module.exports = app;
